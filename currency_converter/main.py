@@ -1,67 +1,118 @@
-import tkinter as tk #graphical interface
-from forex_python.converter import CurrencyRates 
-import mplfinance as mpf
+"""
+Currency Converter Application
+A GUI-based currency converter with historical rate visualization
+using the Frankfurter API.
+"""
 
-common_currencies = ['USD', 'EUR', 'LEK', 'CAD', 'JPY', 'CHF', 'NZD', 'AUD']
+import customtkinter as ctk 
+import requests 
+
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+
+from datetime import date, timedelta
+
+ctk.set_appearance_mode("light")
+ctk.set_default_color_theme("dark-blue")
+
+common_currencies = ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'NZD']  
 
 class CurrencyConverter:
 
+    """
+    A GUI currency converter built with customtkinter.
+    Handles user input, API calls, and historical chart rendering.
+    """
+
     def __init__(self):
-        self.root = tk.Tk()
+        # --- Window Setup ---
+        self.root = ctk.CTk()
         self.root.title('Currency Converter')
-        self.root.geometry('200x180')
+        self.root.geometry('400x600')
+        self.root.grid_columnconfigure(0, weight = 1)
+        self.root.grid_columnconfigure(1, weight = 1)
 
-        self.from_var = tk.StringVar(self.root)
+        # --- Currency Selector
+        self.from_var = ctk.StringVar(self.root)
         self.from_var.set('USD')
-        self.from_menu = tk.OptionMenu(self.root, self.from_var, *common_currencies)
-        self.from_menu.pack(pady = 1)
+        self.from_menu = ctk.CTkOptionMenu(self.root, variable = self.from_var, values = common_currencies)
+        self.from_menu.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
 
-        self.to_var = tk.StringVar(self.root)
+        self.to_var = ctk.StringVar(self.root)
         self.to_var.set('EUR')
-        self.to_menu = tk.OptionMenu(self.root, self.to_var, *common_currencies)
-        self.to_menu.pack(pady = 1)
+        self.to_menu = ctk.CTkOptionMenu(self.root, variable = self.to_var, values = common_currencies)
+        self.to_menu.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
 
-        self.amount_label = tk.Label(self.root, text = 'Amount:')
-        self.amount_label.pack(pady = 1)
+        # --- Amount Input ---
+        self.amount_label = ctk.CTkLabel(self.root, text='Amount: ')
+        self.amount_label.grid(row=2, column=0, padx=10, pady=5, sticky='ew')
 
-        self.amount_entry = tk.Entry(self.root)
-        self.amount_entry.pack(pady = 1)
+        self.amount_entry = ctk.CTkEntry(self.root)
+        self.amount_entry.grid(row=2, column=1, padx=10, pady=5, sticky='ew')
 
-        self.convert_button = tk.Button(self.root, text = 'Convert', command= self.convert_currency)
-        self.convert_button.pack(pady = 1)
+        self.convert_button = ctk.CTkButton(self.root, text='Convert', command=self.convert_currency)
+        self.convert_button.grid(row=3, column=0, columnspan=2, padx=10, pady=5, sticky='ew')
 
-        self.result_label = tk.Label(self.root, text="")
-        self.result_label.pack(pady = 1)
+        # --- Result and Chart ---
+        self.result_label = ctk.CTkLabel(self.root, text="")
+        self.result_label.grid(row=4, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
 
-        url = 'https://www.alphavantage.co/query?function=FX_DAILY&from_symbol='&self.from_var&'&to_symbol='&self.to_var&'&apikey=UIXGVSATYLGREWR8'
-        r = requests.get(url)
-        data = r.json() 
-
-        self.chart = mpf.plot(data, type = 'candle', style = 'yahoo')
-        self.chart.pack(pady = 1)
-        
+        self.fig = Figure(figsize = (5,3), dpi=100)
+        self.ax = self.fig.add_subplot(111)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.root)
+        self.canvas.get_tk_widget().grid(row=5, column=0, columnspan=2, padx=10, pady=10, sticky='ew')
 
         self.root.mainloop()
 
     def convert_currency(self):
+
+        """
+        Fetches the latest exchange rate from the Frankfurter API
+        and updates the result label with the converted amount.
+        """
+
         try:
             from_currency = self.from_var.get()
             to_currency = self.to_var.get()
             amount = float(self.amount_entry.get())
 
-            c_rates = CurrencyRates()
+            url = f'https://api.frankfurter.app/latest?amount={amount}&from={from_currency}&to={to_currency}'
+            response = requests.get(url)
+            data = response.json()
 
-            rate = c_rates.get_rate(from_currency, to_currency)
-            converted_amount = amount * rate
+            converted_amount = data['rates'][to_currency]
+            self.result_label.configure(text=f'{amount: .2f} {from_currency} = {converted_amount:.2f} {to_currency}')
 
-            self.result_label.config(text = f'{amount} {from_currency} = {converted_amount:.2f} {to_currency}')
-                                     
         except ValueError:
-            self.result_label.config(text = f'Please enter a valid number!')
-
+            self.result_label.configure(text='Please enter a valid number!')
         except Exception:
-            self.result_label.config(text = f'Error occurred!')
+            self.result_label.configure(text='Error occured!')
+        
+        self.plot_historical()
 
+    def plot_historical(self):
+
+        """
+        Fetches 90 days of historical rates for the selected "
+        currency pair and renders a line chart in the GUI
+        """
+        
+        end_date = date.today()
+        start_date = end_date - timedelta(days=90)
+
+        from_currency = self.from_var.get()
+        to_currency = self.to_var.get()
+
+        url = f'https://api.frankfurter.app/{start_date}..{end_date}?from={from_currency}&to={to_currency}'
+        response = requests.get(url)
+        data = response.json()
+
+        dates = list(data['rates'].keys())
+        rates = [data['rates'][d]['EUR'] for d in dates]
+
+        self.ax.clear()
+        self.ax.plot(dates, rates)
+        self.canvas.draw()
 
 if __name__ == '__main__':
     CurrencyConverter()
